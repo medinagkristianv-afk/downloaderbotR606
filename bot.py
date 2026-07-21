@@ -81,7 +81,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle YouTube or TikTok links with automatic short URL redirect resolution."""
+    """Handle YouTube or TikTok links."""
     text = update.message.text.strip() if update.message.text else ""
     match = URL_REGEX.search(text)
 
@@ -92,11 +92,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_url = match.group(0)
     loop = asyncio.get_event_loop()
     
-    # Resolve TikTok short URLs (vt.tiktok.com) in executor
     final_url, clean_url, is_photo_link = await loop.run_in_executor(None, lambda: resolve_tiktok_url(raw_url))
 
     if is_photo_link:
-        # Show ONLY Photo and MP3 options for photo posts
         keyboard = [
             [
                 InlineKeyboardButton("🖼 Photo", callback_data="fmt_photo"),
@@ -147,7 +145,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat_id = query.message.chat.id
 
-    # Auto-delete prompt & user link message to keep chat clean
     try:
         await context.bot.delete_message(chat_id=chat_id, message_id=prompt_msg_id)
     except Exception:
@@ -171,7 +168,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_tiktok = "tiktok.com" in url.lower()
 
         if is_photo:
-            # Try TikWM API first for complete HD photo post extraction
             saved_photos = []
             title = "TikTok Photo"
             
@@ -202,7 +198,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except Exception:
                         pass
 
-            # Fallback to yt-dlp thumbnails if TikWM has no images
             if not saved_photos:
                 ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
                 def extract_yt():
@@ -248,7 +243,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "no_warnings": True,
             }
             if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
 
             def download_audio():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -290,7 +285,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "no_warnings": True,
             }
             if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
 
             def download_video():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -359,7 +354,7 @@ def main():
         print("Error: BOT_TOKEN is missing.")
         return
 
-    print("🚀 Starting Telegram Downloader Bot (@ldo4nbot) [TIKTOK SHORT LINK RESOLVER ENGINE]...")
+    print("🚀 Starting Telegram Downloader Bot (@ldo4nbot) [RENDER CLOUD ENGINE]...")
     
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
