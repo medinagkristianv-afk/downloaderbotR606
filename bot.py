@@ -234,7 +234,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif is_audio:
             ydl_opts = {
-                "format": "ba[ext=m4a]/ba/b",
+                "format": "bestaudio/best",
                 "outtmpl": output_template,
                 "concurrent_fragment_downloads": 8,
                 "buffersize": 1024 * 1024,
@@ -243,7 +243,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "no_warnings": True,
             }
             if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
+                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "tv_embedded"]}}
 
             def download_audio():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -275,7 +275,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         else:
             ydl_opts = {
-                "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "format": "bestvideo+bestaudio/best",
                 "outtmpl": output_template,
                 "merge_output_format": "mp4",
                 "concurrent_fragment_downloads": 8,
@@ -285,7 +285,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "no_warnings": True,
             }
             if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
+                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "tv_embedded"]}}
 
             def download_video():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
