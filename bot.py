@@ -163,6 +163,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_event_loop()
         is_audio = (fmt == "fmt_mp3")
         is_photo = (fmt == "fmt_photo")
+        is_tiktok = "tiktok.com" in url.lower()
 
         output_template = os.path.join(temp_dir, "media.%(ext)s")
 
@@ -198,27 +199,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         pass
 
             if not saved_photos:
-                ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
-                def extract_yt():
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        return info.get("thumbnails", []), info.get("title", "TikTok Photo")
-                
-                thumbnails, title = await loop.run_in_executor(None, extract_yt)
-                for idx, t in enumerate(thumbnails):
-                    p_url = t.get("url")
-                    if p_url:
-                        try:
-                            resp = requests.get(p_url, headers=headers, timeout=10)
-                            if resp.status_code == 200:
-                                img_path = os.path.join(temp_dir, f"photo_{idx}.jpg")
-                                with open(img_path, "wb") as f:
-                                    f.write(resp.content)
-                                saved_photos.append(img_path)
-                        except Exception:
-                            pass
-
-            if not saved_photos:
                 raise Exception("Could not extract photos.")
 
             if len(saved_photos) == 1:
@@ -232,108 +212,164 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_media_group(chat_id=chat_id, media=media_group)
 
         elif is_audio:
-            ydl_opts = {
-                "format": "ba/b/bestaudio/best",
-                "outtmpl": output_template,
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android_creator", "android", "tv_embedded", "mweb"]
-                    }
-                },
-                "concurrent_fragment_downloads": 8,
-                "buffersize": 1024 * 1024,
-                "http_chunk_size": 10485760,
-                "quiet": True,
-                "no_warnings": True,
-            }
+            if is_tiktok:
+                # TikTok Audio via TikWM API for 100% reliability
+                def fetch_tiktok_audio():
+                    r = requests.get(f"https://www.tikwm.com/api/?url={raw_url}", headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                    if r.status_code == 200:
+                        data = r.json().get("data", {})
+                        aud_url = data.get("music") or data.get("play")
+                        title = data.get("title", "TikTok Audio")
+                        if aud_url:
+                            resp = requests.get(aud_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+                            if resp.status_code == 200:
+                                file_path = os.path.join(temp_dir, "audio.mp3")
+                                with open(file_path, "wb") as f:
+                                    f.write(resp.content)
+                                return file_path, title
+                    return None, "TikTok Audio"
 
-            def download_audio():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    title = info.get("title", "Media")
-                    uploader = info.get("uploader", "Downloader")
-                    duration = info.get("duration", 0)
-                    path = ydl.prepare_filename(info)
-                    return path, title, uploader, duration
+                final_file, title = await loop.run_in_executor(None, fetch_tiktok_audio)
+                if not final_file:
+                    raise Exception("TikTok Audio download failed.")
 
-            downloaded_path, title, uploader, duration = await loop.run_in_executor(None, download_audio)
-
-            actual_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
-            if not actual_files:
-                raise Exception("Audio download failed.")
-
-            final_file = actual_files[0]
-            with open(final_file, "rb") as media_file:
-                await context.bot.send_audio(
-                    chat_id=chat_id,
-                    audio=media_file,
-                    title=title[:60],
-                    performer=uploader[:30],
-                    duration=duration,
-                    caption=f"🎵 {title}",
-                    read_timeout=300,
-                    write_timeout=300,
-                )
-
-        else:
-            ydl_opts = {
-                "format": "b/bestvideo+bestaudio/best",
-                "outtmpl": output_template,
-                "merge_output_format": "mp4",
-                "extractor_args": {
-                    "youtube": {
-                        "player_client": ["android_creator", "android", "tv_embedded", "mweb"]
-                    }
-                },
-                "concurrent_fragment_downloads": 8,
-                "buffersize": 1024 * 1024,
-                "http_chunk_size": 10485760,
-                "quiet": True,
-                "no_warnings": True,
-            }
-
-            def download_video():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    title = info.get("title", "Media")
-                    uploader = info.get("uploader", "Downloader")
-                    duration = info.get("duration", 0)
-                    width = info.get("width", 0)
-                    height = info.get("height", 0)
-                    path = ydl.prepare_filename(info)
-                    return path, title, uploader, duration, width, height
-
-            downloaded_path, title, uploader, duration, width, height = await loop.run_in_executor(None, download_video)
-
-            actual_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
-            if not actual_files:
-                raise Exception("Video download failed.")
-
-            final_file = actual_files[0]
-            file_size_mb = os.path.getsize(final_file) / (1024 * 1024)
-
-            if file_size_mb > MAX_FILE_SIZE_MB:
-                anim_task.cancel()
-                await progress_msg.edit_text(f"⚠️ File exceeds limit ({MAX_FILE_SIZE_MB}MB).")
-                return
-
-            with open(final_file, "rb") as media_file:
-                send_kwargs = {
-                    "chat_id": chat_id,
-                    "video": media_file,
-                    "caption": f"🎬 {title}",
-                    "supports_streaming": True,
-                    "read_timeout": 300,
-                    "write_timeout": 300,
+                with open(final_file, "rb") as media_file:
+                    await context.bot.send_audio(
+                        chat_id=chat_id,
+                        audio=media_file,
+                        title=title[:60],
+                        caption=f"🎵 {title}",
+                        read_timeout=300,
+                        write_timeout=300,
+                    )
+            else:
+                # YouTube Audio via yt-dlp
+                ydl_opts = {
+                    "format": "ba/b/bestaudio/best",
+                    "outtmpl": output_template,
+                    "extractor_args": {
+                        "youtube": {
+                            "player_client": ["mweb", "tv", "android", "ios"]
+                        }
+                    },
+                    "geo_bypass": True,
+                    "quiet": True,
+                    "no_warnings": True,
                 }
-                if duration:
-                    send_kwargs["duration"] = int(duration)
-                if width:
-                    send_kwargs["width"] = int(width)
-                if height:
-                    send_kwargs["height"] = int(height)
 
-                await context.bot.send_video(**send_kwargs)
+                def download_yt_audio():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        title = info.get("title", "YouTube Audio")
+                        uploader = info.get("uploader", "YouTube")
+                        duration = info.get("duration", 0)
+                        return title, uploader, duration
+
+                title, uploader, duration = await loop.run_in_executor(None, download_yt_audio)
+
+                actual_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
+                if not actual_files:
+                    raise Exception("Audio download failed.")
+
+                final_file = actual_files[0]
+                with open(final_file, "rb") as media_file:
+                    await context.bot.send_audio(
+                        chat_id=chat_id,
+                        audio=media_file,
+                        title=title[:60],
+                        performer=uploader[:30],
+                        duration=duration,
+                        caption=f"🎵 {title}",
+                        read_timeout=300,
+                        write_timeout=300,
+                    )
+
+        else: # MP4 Video
+            if is_tiktok:
+                # TikTok Video WITH FULL SOUND via TikWM API
+                def fetch_tiktok_video():
+                    r = requests.get(f"https://www.tikwm.com/api/?url={raw_url}", headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+                    if r.status_code == 200:
+                        data = r.json().get("data", {})
+                        vid_url = data.get("play") or data.get("wmplay")
+                        title = data.get("title", "TikTok Video")
+                        if vid_url:
+                            resp = requests.get(vid_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=60)
+                            if resp.status_code == 200:
+                                file_path = os.path.join(temp_dir, "video.mp4")
+                                with open(file_path, "wb") as f:
+                                    f.write(resp.content)
+                                return file_path, title
+                    return None, "TikTok Video"
+
+                final_file, title = await loop.run_in_executor(None, fetch_tiktok_video)
+                if not final_file:
+                    raise Exception("TikTok Video download failed.")
+
+                with open(final_file, "rb") as media_file:
+                    await context.bot.send_video(
+                        chat_id=chat_id,
+                        video=media_file,
+                        caption=f"🎬 {title}",
+                        supports_streaming=True,
+                        read_timeout=300,
+                        write_timeout=300,
+                    )
+            else:
+                # YouTube Video via yt-dlp
+                ydl_opts = {
+                    "format": "b/best",
+                    "outtmpl": output_template,
+                    "extractor_args": {
+                        "youtube": {
+                            "player_client": ["mweb", "tv", "android", "ios"]
+                        }
+                    },
+                    "geo_bypass": True,
+                    "quiet": True,
+                    "no_warnings": True,
+                }
+
+                def download_yt_video():
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        title = info.get("title", "YouTube Video")
+                        duration = info.get("duration", 0)
+                        width = info.get("width", 0)
+                        height = info.get("height", 0)
+                        return title, duration, width, height
+
+                title, duration, width, height = await loop.run_in_executor(None, download_yt_video)
+
+                actual_files = [os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
+                if not actual_files:
+                    raise Exception("Video download failed.")
+
+                final_file = actual_files[0]
+                file_size_mb = os.path.getsize(final_file) / (1024 * 1024)
+
+                if file_size_mb > MAX_FILE_SIZE_MB:
+                    anim_task.cancel()
+                    await progress_msg.edit_text(f"⚠️ File exceeds limit ({MAX_FILE_SIZE_MB}MB).")
+                    return
+
+                with open(final_file, "rb") as media_file:
+                    send_kwargs = {
+                        "chat_id": chat_id,
+                        "video": media_file,
+                        "caption": f"🎬 {title}",
+                        "supports_streaming": True,
+                        "read_timeout": 300,
+                        "write_timeout": 300,
+                    }
+                    if duration:
+                        send_kwargs["duration"] = int(duration)
+                    if width:
+                        send_kwargs["width"] = int(width)
+                    if height:
+                        send_kwargs["height"] = int(height)
+
+                    await context.bot.send_video(**send_kwargs)
 
     except Exception as e:
         logger.error(f"Error: {e}")
