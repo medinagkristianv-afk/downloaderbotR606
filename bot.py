@@ -165,7 +165,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_photo = (fmt == "fmt_photo")
 
         output_template = os.path.join(temp_dir, "media.%(ext)s")
-        is_tiktok = "tiktok.com" in url.lower()
 
         if is_photo:
             saved_photos = []
@@ -234,16 +233,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif is_audio:
             ydl_opts = {
-                "format": "bestaudio/best",
+                "format": "ba/b/bestaudio/best",
                 "outtmpl": output_template,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android_creator", "android", "tv_embedded", "mweb"]
+                    }
+                },
                 "concurrent_fragment_downloads": 8,
                 "buffersize": 1024 * 1024,
                 "http_chunk_size": 10485760,
                 "quiet": True,
                 "no_warnings": True,
             }
-            if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "tv_embedded"]}}
 
             def download_audio():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -275,17 +277,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         else:
             ydl_opts = {
-                "format": "bestvideo+bestaudio/best",
+                "format": "b/bestvideo+bestaudio/best",
                 "outtmpl": output_template,
                 "merge_output_format": "mp4",
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android_creator", "android", "tv_embedded", "mweb"]
+                    }
+                },
                 "concurrent_fragment_downloads": 8,
                 "buffersize": 1024 * 1024,
                 "http_chunk_size": 10485760,
                 "quiet": True,
                 "no_warnings": True,
             }
-            if not is_tiktok:
-                ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "tv_embedded"]}}
 
             def download_video():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
